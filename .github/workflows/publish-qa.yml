@@ -1,34 +1,82 @@
 name: Publish to QA
 
+# Publishes acme-data-utils to the Cloudsmith QA repository on every
+# push to master, but only after CI passes (uses needs: ci).
 on:
   push:
     branches: [master]
 
 jobs:
-  publish:
+  # ── 1. Re-run CI so we never publish a broken build ─────────────────────────
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # ── 2. Publish to QA ────────────────────────────────────────────────────────
+  publish-qa:
+    needs: ci
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write   # required for OIDC — no long-lived key needed
+
+    environment:
+      name: cloudsmith-qa
+      url: https://cloudsmith.io/~${{ vars.CLOUDSMITH_ORG }}/repos/acme-pypi-qa/
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build cloudsmith-cli
+          python-version: "3.11"
 
       - name: Build package
         working-directory: acme-data-utils
-        run: python -m build
+        run: |
+          pip install --upgrade pip build
+          python -m build
 
-      - name: Publish to Cloudsmith
+      # ── Authenticate via OIDC (preferred — no stored secrets) ───────────────
+      # Cloudsmith OIDC lets GitHub Actions exchange its short-lived token for a
+      # temporary Cloudsmith API key.  The service account and OIDC provider are
+      # managed in Terraform (see terraform/main.tf).
+      - name: Obtain short-lived Cloudsmith token via OIDC
+        id: cs-token
+        run: |
+          OIDC_TOKEN=$(curl -sSfL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://cloudsmith" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
+
+          CS_TOKEN=$(curl -sSf \
+            -X POST "https://api.cloudsmith.io/v1/orgs/${{ vars.CLOUDSMITH_ORG }}/oidc/${{ vars.CLOUDSMITH_OIDC_SLUG }}/" \
+            -H "Content-Type: application/json" \
+            -d "{\"oidc_token\":\"$OIDC_TOKEN\",\"service_slug\":\"${{ vars.CLOUDSMITH_SA_SLUG }}\"}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+          echo "::add-mask::$CS_TOKEN"
+          echo "token=$CS_TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Push wheel to Cloudsmith QA
         working-directory: acme-data-utils
         run: |
-          cloudsmith push python atulya_s/acme-pypi-qa dist/*.whl
+          pip install cloudsmith-cli
+          cloudsmith push python \
+            ${{ vars.CLOUDSMITH_ORG }}/acme-pypi-qa \
+            dist/*.whl
         env:
-          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+          CLOUDSMITH_API_KEY: ${{ steps.cs-token.outputs.token }}
+
+      - name: Announce QA package availability
+        run: |
+          VERSION=$(python3 -c "import tomllib; \
+            d=tomllib.load(open('acme-data-utils/pyproject.toml','rb')); \
+            print(d.get('project',{}).get('version','unknown'))" 2>/dev/null \
+            || grep -m1 'version' acme-data-utils/setup.cfg | awk -F= '{print $2}' | tr -d ' ')
+          echo "✅  acme-data-utils==${VERSION} is now available in the QA repository."
+          echo "Install with:"
+          echo "  pip install acme-data-utils==${VERSION} \\"
+          echo "    --index-url https://dl.cloudsmith.io/basic/${{ vars.CLOUDSMITH_ORG }}/acme-pypi-qa/python/simple/"
