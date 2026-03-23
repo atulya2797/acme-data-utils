@@ -1,10 +1,10 @@
 name: Publish to QA
 
 # Publishes acme-data-utils to the Cloudsmith QA repository on every
-# push to main, but only after CI passes (uses needs: ci).
+# push to master, but only after CI passes (uses needs: ci).
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   # ── 1. Re-run CI so we never publish a broken build ─────────────────────────
