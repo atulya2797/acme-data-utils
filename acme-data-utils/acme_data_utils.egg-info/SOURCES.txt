@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+setup.cfg
+setup.py
+acme_data_utils/__init__.py
+acme_data_utils/core.py
+acme_data_utils.egg-info/PKG-INFO
+acme_data_utils.egg-info/SOURCES.txt
+acme_data_utils.egg-info/dependency_links.txt
+acme_data_utils.egg-info/requires.txt
+acme_data_utils.egg-info/top_level.txt
+tests/test_smoke.py
