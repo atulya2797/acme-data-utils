@@ -9,37 +9,35 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      id-token: write   # required for OIDC token
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: "acme-data-utils/pyproject.toml"
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install build tools
-        run: pip install --upgrade pip build pytest
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build pytest
 
       - name: Build package
         working-directory: acme-data-utils
         run: python -m build
 
-      - name: Install built wheel & run tests
+      - name: Install package
         working-directory: acme-data-utils
-        run: |
-          pip install dist/*.whl
-          pytest tests/ -v --tb=short
+        run: pip install dist/*.whl
 
-      - name: Upload dist artifacts
+      - name: Run tests
+        working-directory: acme-data-utils
+        run: pytest tests/ -v
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: python-package-${{ github.sha }}
-          path: acme-data-utils/dist/
-          retention-days: 7
+          name: python-package
+          path: dist/
