@@ -8,12 +8,12 @@ variable "cloudsmith_api_key" {
 variable "cloudsmith_org" {
   description = "Cloudsmith organisation (namespace) slug"
   type        = string
-  default     = "acme-corp"
+  default     = "atulya_s"
   # Override for your actual org slug, e.g. "atulya_s" in the demo
 }
 
 variable "github_repo" {
   description = "GitHub repository in owner/repo format (used to scope OIDC claims)"
   type        = string
-  default     = "acme-corp/acme-data-utils"
+  default     = "atulya2797/acme-data-utils"
 }
