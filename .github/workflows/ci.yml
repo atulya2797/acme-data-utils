@@ -29,7 +29,9 @@ jobs:
 
       - name: Build package
         working-directory: acme-data-utils
-        run: python -m build
+        run: |
+          rm -rf dist/
+          python -m build
 
       - name: Install built wheel & run tests
         working-directory: acme-data-utils
