@@ -39,6 +39,12 @@ jobs:
           pip install --upgrade pip build
           python -m build
 
+      - name: Debug variables
+        run: |
+          echo "Org: ${{ vars.CLOUDSMITH_ORG }}"
+          echo "OIDC slug: ${{ vars.CLOUDSMITH_OIDC_SLUG }}"
+          echo "SA slug: ${{ vars.CLOUDSMITH_SA_SLUG }}"
+
       # ── Authenticate via OIDC (preferred — no stored secrets) ───────────────
       # Cloudsmith OIDC lets GitHub Actions exchange its short-lived token for a
       # temporary Cloudsmith API key.  The service account and OIDC provider are
