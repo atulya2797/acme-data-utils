@@ -1,6 +1,5 @@
 name: Promote to Production
-
-# Manual workflow — a human must trigger this and supply the version to
+# Manual workflow — a reviewer must trigger this and supply the version to
 # promote.  GitHub Environments enforce the required reviewer gate, replacing
 # the GitLab CI `when: manual` job.
 on:
@@ -14,36 +13,14 @@ jobs:
   promote:
     runs-on: ubuntu-latest
 
-    # The "production" environment is configured in GitHub with at least one
-    # required reviewer.  The workflow pauses here until a human approves.
     environment:
       name: production
       url: https://cloudsmith.io/~${{ vars.CLOUDSMITH_ORG }}/repos/acme-pypi-prod/
 
     permissions:
       contents: read
-      id-token: write   # required for OIDC
 
     steps:
-      # ── Authenticate via OIDC ────────────────────────────────────────────────
-      - name: Obtain short-lived Cloudsmith token via OIDC
-        id: cs-token
-        run: |
-          OIDC_TOKEN=$(curl -sSfL \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://cloudsmith" \
-            | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
-
-          CS_TOKEN=$(curl -sSf \
-            -X POST "https://api.cloudsmith.io/v1/orgs/${{ vars.CLOUDSMITH_ORG }}/oidc/${{ vars.CLOUDSMITH_OIDC_SLUG }}/" \
-            -H "Content-Type: application/json" \
-            -d "{\"oidc_token\":\"$OIDC_TOKEN\",\"service_slug\":\"${{ vars.CLOUDSMITH_SA_SLUG }}\"}" \
-            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
-
-          echo "::add-mask::$CS_TOKEN"
-          echo "token=$CS_TOKEN" >> "$GITHUB_OUTPUT"
-
-      # ── Locate the package in QA and copy to Prod ───────────────────────────
       - name: Install Cloudsmith CLI
         run: pip install cloudsmith-cli
 
@@ -72,7 +49,7 @@ jobs:
           echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
           echo "Found package: $SLUG"
         env:
-          CLOUDSMITH_API_KEY: ${{ steps.cs-token.outputs.token }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
 
       - name: Copy package from QA → Production
         run: |
@@ -80,7 +57,7 @@ jobs:
             ${{ vars.CLOUDSMITH_ORG }}/acme-pypi-qa/${{ steps.find-pkg.outputs.slug }} \
             ${{ vars.CLOUDSMITH_ORG }}/acme-pypi-prod
         env:
-          CLOUDSMITH_API_KEY: ${{ steps.cs-token.outputs.token }}
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
 
       - name: Announce promotion
         run: |
