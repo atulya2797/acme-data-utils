@@ -1,12 +1,10 @@
 name: Promote to Production
-# Manual workflow — a reviewer must trigger this and supply the version to
-# promote.  GitHub Environments enforce the required reviewer gate, replacing
-# the GitLab CI `when: manual` job.
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Package version to promote (e.g. 0.1.0)"
+        description: "Package version to promote (e.g. 1.1.6)"
         required: true
 
 jobs:
@@ -19,8 +17,26 @@ jobs:
 
     permissions:
       contents: read
+      id-token: write   # required for OIDC
 
     steps:
+      - name: Obtain short-lived Cloudsmith token via OIDC
+        id: cs-token
+        run: |
+          OIDC_TOKEN=$(curl -sSfL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://cloudsmith" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
+
+          CS_TOKEN=$(curl -sSf \
+            -X POST "https://api.cloudsmith.io/v1/orgs/${{ vars.CLOUDSMITH_ORG }}/oidc/${{ vars.CLOUDSMITH_OIDC_SLUG }}/" \
+            -H "Content-Type: application/json" \
+            -d "{\"oidc_token\":\"$OIDC_TOKEN\",\"service_slug\":\"acme-prod-promoter\"}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+          echo "::add-mask::$CS_TOKEN"
+          echo "token=$CS_TOKEN" >> "$GITHUB_OUTPUT"
+
       - name: Install Cloudsmith CLI
         run: pip install cloudsmith-cli
 
@@ -49,19 +65,19 @@ jobs:
           echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
           echo "Found package: $SLUG"
         env:
-          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+          CLOUDSMITH_API_KEY: ${{ steps.cs-token.outputs.token }}
 
       - name: Copy package from QA → Production
         run: |
           cloudsmith copy \
             ${{ vars.CLOUDSMITH_ORG }}/acme-pypi-qa/${{ steps.find-pkg.outputs.slug }} \
-            acme-pypi-prod
+            ${{ vars.CLOUDSMITH_ORG }}/acme-pypi-prod
         env:
-          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+          CLOUDSMITH_API_KEY: ${{ steps.cs-token.outputs.token }}
 
       - name: Announce promotion
         run: |
-          echo "🚀  acme-data-utils==${{ github.event.inputs.version }} has been promoted to Production."
+          echo "🚀  acme-data-utils==${{ github.event.inputs.version }} promoted to Production."
           echo "Approved by: ${{ github.actor }}"
           echo "Install with:"
           echo "  pip install acme-data-utils==${{ github.event.inputs.version }} \\"

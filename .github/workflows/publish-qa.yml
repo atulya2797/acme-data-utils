@@ -1,23 +1,20 @@
 name: Publish to QA
 
-# Publishes acme-data-utils to the Cloudsmith QA repository on every
-# push to master, but only after CI passes (uses needs: ci).
 on:
   push:
     branches: [master]
 
 jobs:
-  # ── 1. Re-run CI so we never publish a broken build ─────────────────────────
   ci:
     uses: ./.github/workflows/ci.yml
 
-  # ── 2. Publish to QA ────────────────────────────────────────────────────────
   publish-qa:
     needs: ci
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
+      id-token: write   # required for OIDC
 
     environment:
       name: cloudsmith-qa
@@ -39,6 +36,23 @@ jobs:
           rm -rf dist/
           python -m build
 
+      - name: Obtain short-lived Cloudsmith token via OIDC
+        id: cs-token
+        run: |
+          OIDC_TOKEN=$(curl -sSfL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://cloudsmith" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
+
+          CS_TOKEN=$(curl -sSf \
+            -X POST "https://api.cloudsmith.io/v1/orgs/${{ vars.CLOUDSMITH_ORG }}/oidc/${{ vars.CLOUDSMITH_OIDC_SLUG }}/" \
+            -H "Content-Type: application/json" \
+            -d "{\"oidc_token\":\"$OIDC_TOKEN\",\"service_slug\":\"${{ vars.CLOUDSMITH_SA_SLUG }}\"}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+          echo "::add-mask::$CS_TOKEN"
+          echo "token=$CS_TOKEN" >> "$GITHUB_OUTPUT"
+
       - name: Push wheel to Cloudsmith QA
         working-directory: acme-data-utils
         run: |
@@ -47,7 +61,7 @@ jobs:
             ${{ vars.CLOUDSMITH_ORG }}/acme-pypi-qa \
             dist/*.whl
         env:
-          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+          CLOUDSMITH_API_KEY: ${{ steps.cs-token.outputs.token }}
 
       - name: Announce QA package availability
         run: |
@@ -55,7 +69,7 @@ jobs:
             d=tomllib.load(open('acme-data-utils/pyproject.toml','rb')); \
             print(d.get('project',{}).get('version','unknown'))" 2>/dev/null \
             || grep -m1 'version' acme-data-utils/setup.cfg | awk -F= '{print $2}' | tr -d ' ')
-          echo "✅  acme-data-utils==${VERSION} is now available in the QA repository."
+          echo "acme-data-utils==${VERSION} is now available in QA."
           echo "Install with:"
           echo "  pip install acme-data-utils==${VERSION} \\"
           echo "    --index-url https://dl.cloudsmith.io/basic/${{ vars.CLOUDSMITH_ORG }}/acme-pypi-qa/python/simple/"
